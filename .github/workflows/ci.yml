@@ -28,3 +28,9 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6
+        with:
+          # v6's default (golangci-lint v1.64.8, built with go1.24) can't lint
+          # a go.mod targeting go1.26 ("Go language version ... is lower than
+          # the targeted Go version"). Pin to the same v2 release verified
+          # locally against this codebase.
+          version: v2.11.4
