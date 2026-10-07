@@ -1,3 +1,28 @@
+# Build output
 /wireaudit
-TODO.md
 /bin/
+/dist/
+
+# Go test and profiling artifacts
+*.test
+*.out
+*.prof
+coverage/
+coverage.html
+lcov.info
+htmlcov/
+
+# Local task tracking and tool state
+TODO.md
+.claude/settings.local.json
+
+# Secrets and local config
+.env
+.env.*
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
