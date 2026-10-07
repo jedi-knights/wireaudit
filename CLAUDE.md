@@ -5,8 +5,9 @@ Go CLI that probes a live HTTP/HTTPS API and reports protocol-conformance findin
 ## Commands
 
 ```bash
-go build ./... && go vet ./... && go test ./... && golangci-lint run ./...
-go build -o wireaudit ./cmd/wireaudit
+make check   # fmt-check, build, vet, test, lint — run before every PR
+make smoke   # probe jsonplaceholder.typicode.com (GET-only, needs network)
+make help    # all targets
 ```
 
 ## Layout
