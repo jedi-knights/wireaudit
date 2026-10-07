@@ -59,7 +59,7 @@ Exit codes:
 | `--endpoint` | — | Endpoint to probe, e.g. `"GET /v1/users/42"` (repeatable; default: probe `/`) |
 | `--endpoints-file` | — | File with one `"METHOD path"` endpoint per line (mutually exclusive with `--endpoint`) |
 | `--header` | — | Header to send on every request, e.g. `"Authorization: Bearer token"` (repeatable) |
-| `--categories` | *(all)* | Comma-separated category allowlist: `header-syntax,response-headers,methods,caching,redirects,negotiation,tls` |
+| `--categories` | *(all)* | Comma-separated category allowlist: `header-syntax,response-headers,methods,caching,redirects,negotiation,authentication,errors,tls` |
 | `--exclude-rule` | — | Check ID to skip, e.g. `CACHE-003` (repeatable) |
 | `--format` | `human` | Output format: `human` or `json` |
 | `--timeout` | `10s` | Per-request timeout |
@@ -92,6 +92,8 @@ Exit codes:
 | `NEG-001` | negotiation | RFC 9110 §12.5.1/§15.5.7 | An unsupported `Accept` produces 406 or a graceful default, never a 5xx |
 | `NEG-002` | negotiation | RFC 9110 §12.5.5 | `Vary` is present when the response varies by request headers |
 | `NEG-003` | negotiation | RFC 9110 §12.5.1, §8.3 | The returned `Content-Type` actually matches the negotiated `Accept` |
+| `AUTH-001` | authentication | RFC 9110 §15.5.2 | A `401` response carries a `WWW-Authenticate` challenge (passive: only judged when the endpoint itself answers `401`) |
+| `ERR-001` | errors | RFC 9457 | The error body for an unknown resource (`GET /wireaudit-probe-nonexistent-resource`) is `application/problem+json` (**Consider**; skipped for empty bodies and catch-all `200` targets) |
 | `TLS-001` | tls | RFC 5280 | Certificate chain is valid, unexpired, and matches the hostname |
 | `TLS-002` | tls | RFC 8996 | Negotiated TLS version is 1.2 or higher |
 | `TLS-003` | tls | OWASP transport guidance | Plaintext HTTP redirects to HTTPS |
@@ -107,7 +109,7 @@ What `wireaudit` v1 validates today versus what it does not. "Partial" means som
 
 | RFC | Status | Check IDs | What is validated / what is not |
 |---|---|---|---|
-| RFC 9110 HTTP Semantics | Partial | `HDR-004`, `RESP-001/002`, `METH-001..004`, `CACHE-001/002/004/005`, `REDIR-001/002`, `NEG-001..003` | Checked: `Date`, `Content-Type`, HEAD/OPTIONS/405 behavior, validators and conditional requests, redirects, `Accept`/`Vary`. **Not checked:** range requests (§14), `Expect: 100-continue`, `Upgrade`, auth challenges (`WWW-Authenticate`), `Content-Encoding`, `TRACE`/`CONNECT`, status-code selection for writes (e.g. `201` + `Location`) |
+| RFC 9110 HTTP Semantics | Partial | `HDR-004`, `RESP-001/002`, `METH-001..004`, `CACHE-001/002/004/005`, `REDIR-001/002`, `NEG-001..003`, `AUTH-001` | Checked: `Date`, `Content-Type`, HEAD/OPTIONS/405 behavior, validators and conditional requests, redirects, `Accept`/`Vary`, `WWW-Authenticate` on `401`. **Not checked:** range requests (§14), `Expect: 100-continue`, `Upgrade`, `Content-Encoding`, `TRACE`/`CONNECT`, status-code selection for writes (e.g. `201` + `Location`) |
 | RFC 9111 HTTP Caching | Partial | `CACHE-003` | Checked: `Cache-Control` present and not self-contradictory. **Not checked:** `Age`, `Expires`, freshness calculation, `s-maxage`, shared-cache rules |
 | RFC 9112 HTTP/1.1 | Partial | `HDR-001..003`, `RESP-003` | Checked: duplicate/conflicting `Content-Length`, CL+TE smuggling, obs-fold, body length. **Not checked:** chunked-encoding edge cases, connection management, request-line parsing limits |
 | RFC 5280 X.509 | Partial | `TLS-001` | Checked: chain validity, expiry, hostname match. **Not checked:** revocation (CRL/OCSP) |
@@ -116,8 +118,8 @@ What `wireaudit` v1 validates today versus what it does not. "Partial" means som
 | RFC 9113 HTTP/2, RFC 9114 HTTP/3 (+ HPACK, QPACK, QUIC) | Not validated | — | No framing, stream, or compression checks. Planned |
 | RFC 9846 / 8446 / 5246 TLS handshake details | Not validated | — | Only the negotiated version is checked; no cipher-suite or extension audit. Planned |
 | RFC 6265 Cookies | Not validated | — | No `Secure`/`HttpOnly`/`SameSite` checks |
-| RFC 9457 Problem Details | Not validated | — | Error body shape and `application/problem+json` are not checked |
-| RFC 7617 / 6750 / 9729 Authentication | Not validated | — | No `401` + `WWW-Authenticate` check |
+| RFC 9457 Problem Details | Partial | `ERR-001` | Checked: error body for an unknown resource is `application/problem+json`. **Not checked:** member names/types, `status` matching the HTTP status, 5xx and validation-error bodies |
+| RFC 7617 / 6750 / 9729 Authentication | Partial | `AUTH-001` | Checked: `401` carries a `WWW-Authenticate` challenge (RFC 9110 §11.6.1 framework). **Not checked:** scheme-specific parameters (`realm`, Bearer `error`), `Authentication-Info`, `407` / `Proxy-Authenticate` |
 | RFC 6455 / 8441 / 9220 WebSocket | Not validated | — | Upgrade handshake not probed. Planned |
 | RFC 8288 Web Linking, RFC 9211 `Cache-Status`, RFC 9209 `Proxy-Status`, RFC 7838 `Alt-Svc`, RFC 5789 `PATCH`, RFC 6585 / 7725 / 8297 extra status codes, RFC 7239 `Forwarded`, RFC 9421 signatures, WebDAV | Not validated | — | Extension surface; no checks |
 
@@ -142,9 +144,10 @@ Mapped from the site's guides on resource naming, HTTP methods, status codes, er
 | Charset declared in `Content-Type` (Content Negotiation) | Partial | `RESP-002` checks `Content-Type`; the `charset` parameter is not |
 | Don't leak internals in errors (Error Handling) | Partial | `HDR-004` covers header injection only; stack traces, SQL and paths in bodies are not scanned |
 | `201 Created` includes `Location` (Status Codes) | **Not validated** | Needs a write probe |
-| `401` includes `WWW-Authenticate`; `401` vs `403` (Status Codes) | **Not validated** | |
+| `401` includes `WWW-Authenticate` (Status Codes) | Validated | `AUTH-001` (passive: only when the endpoint answers `401`) |
+| `401` vs `403` usage (Status Codes) | **Not validated** | Needs API-specific knowledge |
 | `400` vs `422`, `409`, `404` vs `410` usage (Status Codes) | **Not validated** | Needs API-specific knowledge |
-| Errors use `application/problem+json` with `type`, `title`, `status`, `detail`, `instance` (Error Handling) | **Not validated** | RFC 9457 |
+| Errors use `application/problem+json` (Error Handling) | Partial | `ERR-001` (**Consider**), unknown-resource error only; required members `type`/`title`/`status`/`detail`/`instance` are not checked |
 | `429` / `503` include `Retry-After` (Error Handling) | **Not validated** | Needs a rate-limit trigger |
 | PUT and DELETE are idempotent; POST accepts `Idempotency-Key` (Idempotence) | **Not validated** | Repeated writes are deliberately not sent by default |
 | `DELETE`/`PUT` on a collection returns `405` (HTTP Methods) | **Not validated** | |

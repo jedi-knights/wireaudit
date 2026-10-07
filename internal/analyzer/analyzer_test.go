@@ -383,3 +383,96 @@ func TestExcludeRule_SkipsSpecificCheck(t *testing.T) {
 		t.Errorf("CACHE-003 should have been excluded via ExcludeRules")
 	}
 }
+
+func TestUnauthorizedWithoutChallenge_FlagsAUTH001(t *testing.T) {
+	t.Run("401 with no WWW-Authenticate is Must Fix", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if bucket, ok := findingIDs(rpt)["AUTH-001"]; !ok || bucket != report.MustFix {
+			t.Errorf("expected AUTH-001 in MustFix, got %v (present=%v)", bucket, ok)
+		}
+	})
+
+	t.Run("401 with a challenge is clean", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="api"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if _, ok := findingIDs(rpt)["AUTH-001"]; ok {
+			t.Errorf("expected no AUTH-001 finding when WWW-Authenticate is present")
+		}
+	})
+
+	t.Run("non-401 responses are not judged", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if _, ok := findingIDs(rpt)["AUTH-001"]; ok {
+			t.Errorf("expected no AUTH-001 finding for a 403")
+		}
+	})
+}
+
+func TestErrorBodyFormat_FlagsERR001(t *testing.T) {
+	notFound := func(contentType, body string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if contentType != "" {
+				w.Header().Set("Content-Type", contentType)
+			}
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(body))
+		}))
+	}
+
+	t.Run("plain-text 404 body is Consider", func(t *testing.T) {
+		srv := notFound("text/plain", "not found")
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if bucket, ok := findingIDs(rpt)["ERR-001"]; !ok || bucket != report.Consider {
+			t.Errorf("expected ERR-001 in Consider, got %v (present=%v)", bucket, ok)
+		}
+	})
+
+	t.Run("problem+json 404 body is clean", func(t *testing.T) {
+		srv := notFound("application/problem+json; charset=utf-8", `{"type":"about:blank","title":"Not Found","status":404}`)
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if _, ok := findingIDs(rpt)["ERR-001"]; ok {
+			t.Errorf("expected no ERR-001 finding for application/problem+json")
+		}
+	})
+
+	t.Run("empty 404 body is not judged", func(t *testing.T) {
+		srv := notFound("", "")
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if _, ok := findingIDs(rpt)["ERR-001"]; ok {
+			t.Errorf("expected no ERR-001 finding when the error has no body")
+		}
+	})
+
+	t.Run("catch-all 200 is not judged", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("spa shell"))
+		}))
+		defer srv.Close()
+
+		rpt := runAgainst(t, srv)
+		if _, ok := findingIDs(rpt)["ERR-001"]; ok {
+			t.Errorf("expected no ERR-001 finding when unknown paths return 200")
+		}
+	})
+}
