@@ -59,7 +59,7 @@ Exit codes:
 | `--endpoint` | — | Endpoint to probe, e.g. `"GET /v1/users/42"` (repeatable; default: probe `/`) |
 | `--endpoints-file` | — | File with one `"METHOD path"` endpoint per line (mutually exclusive with `--endpoint`) |
 | `--header` | — | Header to send on every request, e.g. `"Authorization: Bearer token"` (repeatable) |
-| `--categories` | *(all)* | Comma-separated category allowlist: `header-syntax,response-headers,methods,caching,redirects,negotiation,authentication,errors,tls` |
+| `--categories` | *(all)* | Comma-separated category allowlist: `header-syntax,response-headers,methods,caching,redirects,negotiation,authentication,errors,uri,tls` |
 | `--exclude-rule` | — | Check ID to skip, e.g. `CACHE-003` (repeatable) |
 | `--format` | `human` | Output format: `human` or `json` |
 | `--timeout` | `10s` | Per-request timeout |
@@ -94,6 +94,8 @@ Exit codes:
 | `NEG-003` | negotiation | RFC 9110 §12.5.1, §8.3 | The returned `Content-Type` actually matches the negotiated `Accept` |
 | `AUTH-001` | authentication | RFC 9110 §15.5.2 | A `401` response carries a `WWW-Authenticate` challenge (passive: only judged when the endpoint itself answers `401`) |
 | `ERR-001` | errors | RFC 9457 | The error body for an unknown resource (`GET /wireaudit-probe-nonexistent-resource`) is `application/problem+json` (**Consider**; skipped for empty bodies and catch-all `200` targets) |
+| `URI-001` | uri | restfulapi.net (non-normative); RFC 3986 §6.2.2.1 | **Static, sends no request.** Endpoint path follows REST naming: lowercase, hyphens, no trailing slash, no file extension, no CRUD verb. Segments containing a digit (ids, `v1`) and `/.well-known/` are exempt. **Consider** |
+| `URI-002` | uri | RFC 9110 §4.2.4 | **Static, sends no request.** Endpoint URL has no userinfo (**Must Fix**) and no credential-like query parameter such as `token` or `api_key` (**Should Fix**); only the parameter name is reported, never the value |
 | `TLS-001` | tls | RFC 5280 | Certificate chain is valid, unexpired, and matches the hostname |
 | `TLS-002` | tls | RFC 8996 | Negotiated TLS version is 1.2 or higher |
 | `TLS-003` | tls | OWASP transport guidance | Plaintext HTTP redirects to HTTPS |
@@ -109,7 +111,7 @@ What `wireaudit` v1 validates today versus what it does not. "Partial" means som
 
 | RFC | Status | Check IDs | What is validated / what is not |
 |---|---|---|---|
-| RFC 9110 HTTP Semantics | Partial | `HDR-004`, `RESP-001/002`, `METH-001..004`, `CACHE-001/002/004/005`, `REDIR-001/002`, `NEG-001..003`, `AUTH-001` | Checked: `Date`, `Content-Type`, HEAD/OPTIONS/405 behavior, validators and conditional requests, redirects, `Accept`/`Vary`, `WWW-Authenticate` on `401`. **Not checked:** range requests (§14), `Expect: 100-continue`, `Upgrade`, `Content-Encoding`, `TRACE`/`CONNECT`, status-code selection for writes (e.g. `201` + `Location`) |
+| RFC 9110 HTTP Semantics | Partial | `HDR-004`, `RESP-001/002`, `METH-001..004`, `CACHE-001/002/004/005`, `REDIR-001/002`, `NEG-001..003`, `AUTH-001`, `URI-002` | Checked: `Date`, `Content-Type`, HEAD/OPTIONS/405 behavior, validators and conditional requests, redirects, `Accept`/`Vary`, `WWW-Authenticate` on `401`, no userinfo in the endpoint URL. **Not checked:** range requests (§14), `Expect: 100-continue`, `Upgrade`, `Content-Encoding`, `TRACE`/`CONNECT`, status-code selection for writes (e.g. `201` + `Location`) |
 | RFC 9111 HTTP Caching | Partial | `CACHE-003` | Checked: `Cache-Control` present and not self-contradictory. **Not checked:** `Age`, `Expires`, freshness calculation, `s-maxage`, shared-cache rules |
 | RFC 9112 HTTP/1.1 | Partial | `HDR-001..003`, `RESP-003` | Checked: duplicate/conflicting `Content-Length`, CL+TE smuggling, obs-fold, body length. **Not checked:** chunked-encoding edge cases, connection management, request-line parsing limits |
 | RFC 5280 X.509 | Partial | `TLS-001` | Checked: chain validity, expiry, hostname match. **Not checked:** revocation (CRL/OCSP) |
@@ -151,8 +153,9 @@ Mapped from the site's guides on resource naming, HTTP methods, status codes, er
 | `429` / `503` include `Retry-After` (Error Handling) | **Not validated** | Needs a rate-limit trigger |
 | PUT and DELETE are idempotent; POST accepts `Idempotency-Key` (Idempotence) | **Not validated** | Repeated writes are deliberately not sent by default |
 | `DELETE`/`PUT` on a collection returns `405` (HTTP Methods) | **Not validated** | |
-| Nouns, plural collections, lowercase, hyphens, no trailing slash, no extensions, no verbs in URIs (Resource Naming) | **Not validated** | Static URI lint; could run on `--endpoint` paths without any probe |
-| Credentials, tokens and API keys not in the URL (Security) | **Not validated** | Same: static lint of supplied endpoints |
+| Lowercase, hyphens, no trailing slash, no extensions, no verbs in URIs (Resource Naming) | Validated | `URI-001` (**Consider**, static lint of the endpoint path) |
+| Plural collection names, singular documents (Resource Naming) | **Not validated** | Cannot be decided from the URI alone |
+| Credentials, tokens and API keys not in the URL (Security) | Validated | `URI-002` (static; userinfo is Must Fix, credential-like query parameter names are Should Fix) |
 | Pagination with `Link` headers, page-size cap, `400` on bad sort field (Pagination) | **Not validated** | |
 | Versioning strategy; deprecation signals (Versioning) | **Not validated** | `Deprecation` (RFC 9745) / `Sunset` headers are not checked |
 | Hypermedia links in responses (HATEOAS) | **Not validated** | |
@@ -160,7 +163,7 @@ Mapped from the site's guides on resource naming, HTTP methods, status codes, er
 | Stateless auth, least privilege, input validation, OAuth 2.0 (Security) | Out of scope | Server design, not observable from the wire |
 | Resource modeling, REST vs GraphQL vs gRPC, client/server separation (REST Constraints) | Out of scope | Architecture guidance |
 
-The site's own guidance is not fully consistent: Resource Naming says "no file extensions", while Content Negotiation lists `.json` / `.xml` URL suffixes as an alternative. `wireaudit` follows the header-based approach (RFC 9110 §12) and would not flag the absence of suffixes.
+The site's own guidance is not fully consistent: Resource Naming says "no file extensions", while Content Negotiation lists `.json` / `.xml` URL suffixes as an alternative. `wireaudit` follows the Resource Naming guide (`URI-001` flags file extensions) and the header-based approach of RFC 9110 §12.
 
 ## References
 
