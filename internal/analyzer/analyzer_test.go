@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -565,4 +566,84 @@ func TestURICredentials_FlagsURI002(t *testing.T) {
 			t.Errorf("expected no URI-002 finding for non-credential parameters")
 		}
 	})
+}
+
+// mutationRecorder is a well-behaved read-only resource that counts every
+// request using a mutating method, so tests can prove the probe never sent one.
+func mutationRecorder(t *testing.T) (*httptest.Server, func() map[string]int) {
+	t.Helper()
+	var mu sync.Mutex
+	seen := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+			w.Header().Set("ETag", `"v1"`)
+			if r.Header.Get("If-None-Match") == `"v1"` {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			_, _ = w.Write([]byte("ok"))
+		case http.MethodOptions:
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			mu.Lock()
+			seen[r.Method]++
+			mu.Unlock()
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed) // e.g. METH-003's read-only PROPFIND
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() map[string]int {
+		mu.Lock()
+		defer mu.Unlock()
+		out := make(map[string]int, len(seen))
+		for k, v := range seen {
+			out[k] = v
+		}
+		return out
+	}
+}
+
+func TestMutatingEndpoint_NeverSendsWriteWithoutOptIn(t *testing.T) {
+	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+		t.Run(method, func(t *testing.T) {
+			srv, mutations := mutationRecorder(t)
+			rpt, err := analyzer.Run(context.Background(), analyzer.Config{
+				Endpoints: []probe.Endpoint{{Method: method, URL: srv.URL + "/v1/things/1"}},
+				Timeout:   5 * time.Second,
+			})
+			if err != nil {
+				t.Fatalf("analyzer.Run: %v", err)
+			}
+			if got := mutations(); len(got) != 0 {
+				t.Errorf("%s endpoint without --allow-unsafe-writes sent mutating requests: %v", method, got)
+			}
+			// A read-only probe of a healthy resource must not blame it for
+			// the write method's own behavior (the old bug: a PUT carrying
+			// If-None-Match reported "conditional GET returned 200").
+			if _, ok := findingIDs(rpt)["CACHE-002"]; ok {
+				t.Errorf("CACHE-002 must not fire for a %s endpoint whose GET handles If-None-Match correctly", method)
+			}
+		})
+	}
+}
+
+func TestMutatingEndpoint_WithOptInSendsAtMostTheRedirectBaseline(t *testing.T) {
+	srv, mutations := mutationRecorder(t)
+	_, err := analyzer.Run(context.Background(), analyzer.Config{
+		Endpoints:         []probe.Endpoint{{Method: "POST", URL: srv.URL + "/v1/things"}},
+		Timeout:           5 * time.Second,
+		AllowUnsafeWrites: true,
+	})
+	if err != nil {
+		t.Fatalf("analyzer.Run: %v", err)
+	}
+	// Only REDIR-002 issues the endpoint's real method (one baseline
+	// request); every other rule keeps probing with GET.
+	if got := mutations()["POST"]; got > 1 {
+		t.Errorf("expected at most 1 POST (REDIR-002 baseline) with opt-in, got %d", got)
+	}
 }

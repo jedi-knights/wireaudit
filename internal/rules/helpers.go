@@ -27,3 +27,15 @@ func isClientError(status int) bool {
 func isServerError(status int) bool {
 	return status >= 500 && status < 600
 }
+
+// readOnlyMethod returns the method rules use for their read-only probes of ep:
+// the endpoint's own method when it is on the read-only allowlist, otherwise
+// GET. A rule that merely inspects headers, caching or negotiation on a
+// "PUT /x" endpoint must never send a PUT — only CACHE-005 and REDIR-002
+// issue the endpoint's real method, and only after --allow-unsafe-writes.
+func readOnlyMethod(ep probe.Endpoint) string {
+	if probe.IsSafeMethod(ep.Method) {
+		return ep.Method
+	}
+	return "GET"
+}

@@ -25,7 +25,7 @@ func (acceptHandledGracefullyRule) RequiresRawSocket() bool { return false }
 
 func (r acceptHandledGracefullyRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	res, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{"Accept": {"application/x-wireaudit-bogus-media-type"}},
 	}, false)
@@ -51,7 +51,7 @@ func (varyPresentRule) RequiresRawSocket() bool { return false }
 
 func (r varyPresentRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	jsonRes, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{"Accept": {"application/json"}},
 	}, false)
@@ -59,7 +59,7 @@ func (r varyPresentRule) Check(_ context.Context, sess *probe.Session, ep probe.
 		return nil
 	}
 	xmlRes, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{"Accept": {"application/xml"}},
 	}, false)
@@ -92,7 +92,7 @@ func (contentTypeMatchesAcceptRule) RequiresRawSocket() bool { return false }
 
 func (r contentTypeMatchesAcceptRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	jsonRes, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{"Accept": {"application/json"}},
 	}, false)
@@ -111,7 +111,7 @@ func (r contentTypeMatchesAcceptRule) Check(_ context.Context, sess *probe.Sessi
 	}
 
 	bogusRes, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{"Accept": {"application/x-wireaudit-bogus-media-type"}},
 	}, false)

@@ -110,7 +110,7 @@ func (r httpToHTTPSRedirectRule) Check(_ context.Context, sess *probe.Session, e
 	}
 	httpURL := "http://" + u.Host + u.RequestURI()
 
-	res, err := sess.Do(probe.RequestSpec{Method: ep.Method, URL: httpURL}, false)
+	res, err := sess.Do(probe.RequestSpec{Method: readOnlyMethod(ep), URL: httpURL}, false)
 	if err != nil || res.Err != nil {
 		return nil // plaintext port likely closed entirely, which is at least as safe
 	}

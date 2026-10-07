@@ -15,7 +15,7 @@ func init() {
 }
 
 func getBaseline(sess *probe.Session, ep probe.Endpoint) (probe.Result, error) {
-	return sess.Do(probe.RequestSpec{Method: ep.Method, URL: ep.URL}, false)
+	return sess.Do(probe.RequestSpec{Method: readOnlyMethod(ep), URL: ep.URL}, false)
 }
 
 // --- RESP-001: date-header-present ---

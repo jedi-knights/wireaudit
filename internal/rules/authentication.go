@@ -24,7 +24,7 @@ func (unauthorizedHasChallengeRule) RequiresRawSocket() bool { return false }
 // endpoint, so it never sends credentials-guessing or otherwise unusual
 // traffic. It fires only when the target itself answers 401.
 func (r unauthorizedHasChallengeRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
-	res, err := sess.Do(probe.RequestSpec{Method: ep.Method, URL: ep.URL}, false)
+	res, err := sess.Do(probe.RequestSpec{Method: readOnlyMethod(ep), URL: ep.URL}, false)
 	if err != nil || res.Err != nil || res.Response.StatusCode != 401 {
 		return nil
 	}

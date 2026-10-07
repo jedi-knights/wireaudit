@@ -55,8 +55,20 @@ func (redirectBodyPreservationRule) ID() string              { return "REDIR-002
 func (redirectBodyPreservationRule) Category() string        { return "redirects" }
 func (redirectBodyPreservationRule) RequiresRawSocket() bool { return false }
 
-func (r redirectBodyPreservationRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
-	res, err := getBaseline(sess, ep)
+func (r redirectBodyPreservationRule) Check(ctx context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
+	// 303 must be followed with GET regardless of the original method;
+	// 307/308 must preserve the original method and body. This is only
+	// checkable when the original request itself was not already GET — and
+	// for a mutating method it means sending that real method, which needs
+	// the caller's explicit opt-in.
+	if ep.Method == "GET" {
+		return nil
+	}
+	if !probe.IsSafeMethod(ep.Method) && !allowUnsafeWrites(ctx) {
+		return nil
+	}
+
+	res, err := sess.Do(probe.RequestSpec{Method: ep.Method, URL: ep.URL}, false)
 	if err != nil || res.Err != nil {
 		return nil
 	}
@@ -67,13 +79,6 @@ func (r redirectBodyPreservationRule) Check(_ context.Context, sess *probe.Sessi
 	loc, present := res.Response.HeaderValue("Location")
 	if !present {
 		return nil // REDIR-001 already covers the missing-Location case
-	}
-
-	// 303 must be followed with GET regardless of the original method;
-	// 307/308 must preserve the original method and body. This is only
-	// checkable when the original request itself was not already GET.
-	if ep.Method == "GET" {
-		return nil
 	}
 
 	followRes, err := sess.Do(probe.RequestSpec{Method: ep.Method, URL: loc, Body: []byte("{}")}, false)

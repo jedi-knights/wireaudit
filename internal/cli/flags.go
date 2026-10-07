@@ -54,7 +54,7 @@ func ParseFlags(args []string) (Config, error) {
 	fs.StringVar(&cfg.Format, "format", "human", `output format: "human" or "json"`)
 	fs.DurationVar(&cfg.Timeout, "timeout", 10*time.Second, "per-request timeout")
 	fs.BoolVar(&cfg.InsecureSkipVerify, "insecure-skip-verify", false, "disable TLS certificate verification (never use against production targets)")
-	fs.BoolVar(&cfg.AllowUnsafeWrites, "allow-unsafe-writes", false, "permit CACHE-005 to send a real PUT/PATCH/DELETE against the target")
+	fs.BoolVar(&cfg.AllowUnsafeWrites, "allow-unsafe-writes", false, "permit CACHE-005 and REDIR-002 to send real mutating requests (POST/PUT/PATCH/DELETE) against the target")
 	fs.IntVar(&cfg.Concurrency, "concurrency", 4, "maximum endpoints probed in parallel")
 
 	if err := fs.Parse(args); err != nil {

@@ -23,7 +23,7 @@ func requestLine(ep probe.Endpoint, extraHeaders string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("headersyntax: parsing endpoint URL: %w", err)
 	}
-	return fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\n%s", ep.Method, u.RequestURI(), u.Host, extraHeaders), nil
+	return fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\n%s", readOnlyMethod(ep), u.RequestURI(), u.Host, extraHeaders), nil
 }
 
 // doRaw sends payload verbatim through sess and returns the resulting
@@ -32,7 +32,7 @@ func requestLine(ep probe.Endpoint, extraHeaders string) (string, error) {
 // so callers treat res.Err != nil as "inconclusive," not "violation."
 func doRaw(sess *probe.Session, ep probe.Endpoint, payload string) (probe.Result, error) {
 	return sess.Do(probe.RequestSpec{
-		Method:      ep.Method,
+		Method:      readOnlyMethod(ep),
 		URL:         ep.URL,
 		RawOverride: []byte(payload),
 	}, true)
@@ -162,7 +162,7 @@ func (r crlfInjectionRule) Check(_ context.Context, sess *probe.Session, ep prob
 	}
 	u.RawQuery = q.Encode()
 
-	probeEP := probe.Endpoint{Method: ep.Method, URL: u.String()}
+	probeEP := probe.Endpoint{Method: readOnlyMethod(ep), URL: u.String()}
 	headers, err := requestLine(probeEP, "Connection: close\r\n\r\n")
 	if err != nil {
 		return nil
