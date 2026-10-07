@@ -79,8 +79,8 @@ Exit codes:
 | `RESP-002` | response-headers | RFC 9110 §8.3 | `Content-Type` is present and consistent with the body |
 | `RESP-003` | response-headers | RFC 9112 §6.3 | `Content-Length` equals the actual body length |
 | `METH-001` | methods | RFC 9110 §9.3.2 | HEAD returns no body and headers equivalent to GET |
-| `METH-002` | methods | RFC 9110 §9.3.7 | OPTIONS returns `Allow` |
-| `METH-003` | methods | RFC 9110 §15.5.6 | An unsupported method on an existing route returns 405 with `Allow` |
+| `METH-002` | methods | RFC 9110 §9.3.7 | OPTIONS returns `Allow` (skipped when the endpoint itself returns 404/410) |
+| `METH-003` | methods | RFC 9110 §15.5.6 | An unsupported method on an existing route returns 405 with `Allow` (skipped when the endpoint itself returns 404/410, since 404 is then correct) |
 | `METH-004` | methods | RFC 9110 §9.3.1 | GET/HEAD succeed without a request body |
 | `CACHE-001` | caching | RFC 9110 §8.8.2/3 | Cacheable GET carries `ETag` and/or `Last-Modified` |
 | `CACHE-002` | caching | RFC 9110 §13.1.1/§13.1.3/§15.4.5 | A matching conditional GET returns 304 with an empty body |
