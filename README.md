@@ -101,6 +101,8 @@ Exit codes:
 | `TLS-003` | tls | OWASP transport guidance | Plaintext HTTP redirects to HTTPS |
 | `TLS-004` | tls | RFC 6797 | HTTPS responses carry `Strict-Transport-Security` |
 
+`TLS-001`..`TLS-004` describe the whole host, so each is reported once per host (first probed endpoint wins) with a note of how many other probed endpoints had the same finding. All other rules are reported per endpoint.
+
 Not yet covered (planned, added via the same extensible rule registry with no architecture change): HTTP/2 and HTTP/3 framing, WebSocket upgrade handshake, full cipher-suite auditing, CORS preflight semantics.
 
 ## Coverage

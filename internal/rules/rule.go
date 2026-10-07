@@ -26,6 +26,14 @@ type Rule interface {
 	RequiresRawSocket() bool
 }
 
+// HostScoped is an optional marker for rules whose verdict describes the
+// whole host (certificate, TLS version, plaintext redirect, HSTS) rather than
+// one endpoint. The analyzer reports a host-scoped finding once per host
+// instead of once per probed endpoint.
+type HostScoped interface {
+	HostScoped()
+}
+
 // Registry holds every registered Rule, in registration order.
 type Registry struct {
 	rules []Rule

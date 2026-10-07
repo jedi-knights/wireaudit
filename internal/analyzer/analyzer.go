@@ -7,6 +7,7 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -59,15 +60,17 @@ func Run(ctx context.Context, cfg Config) (*report.Report, error) {
 		concurrency = 1
 	}
 
+	// perEndpoint is indexed by endpoint position so the flattened order, and
+	// therefore which endpoint a deduplicated finding is attributed to, is
+	// deterministic regardless of goroutine scheduling.
 	var (
-		mu       sync.Mutex
-		findings []report.Finding
-		wg       sync.WaitGroup
+		perEndpoint = make([][]report.Finding, len(cfg.Endpoints))
+		wg          sync.WaitGroup
 	)
 	sem := make(chan struct{}, concurrency)
 
-	for _, ep := range cfg.Endpoints {
-		ep := ep
+	for i, ep := range cfg.Endpoints {
+		i, ep := i, ep
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
@@ -76,14 +79,12 @@ func Run(ctx context.Context, cfg Config) (*report.Report, error) {
 
 			epFindings := runRules(ctx, activeRules, httpClient, rawClient, cfg.Headers, ep, cfg.AllowUnsafeWrites)
 
-			mu.Lock()
-			findings = append(findings, epFindings...)
-			mu.Unlock()
+			perEndpoint[i] = epFindings // distinct index per goroutine: no lock needed
 		}()
 	}
 	wg.Wait()
 
-	r := report.NewReport(findings)
+	r := report.NewReport(dedupeHostScoped(perEndpoint, cfg.Endpoints, hostScopedIDs(activeRules)))
 	assertBucketed(r)
 	return r, nil
 }
@@ -100,6 +101,60 @@ func runRules(ctx context.Context, activeRules []rules.Rule, httpClient *probe.H
 		findings = append(findings, rule.Check(ctx, sess, ep)...)
 	}
 	return findings
+}
+
+// hostScopedIDs returns the IDs of active rules that describe a whole host.
+func hostScopedIDs(activeRules []rules.Rule) map[string]bool {
+	ids := make(map[string]bool)
+	for _, rule := range activeRules {
+		if _, ok := rule.(rules.HostScoped); ok {
+			ids[rule.ID()] = true
+		}
+	}
+	return ids
+}
+
+// dedupeHostScoped flattens per-endpoint findings in endpoint order and keeps
+// only the first finding per (host, check) for host-scoped rules, annotating
+// it with how many other endpoints on the host had the same finding.
+// Findings from all other rules pass through untouched. O(total findings).
+func dedupeHostScoped(perEndpoint [][]report.Finding, eps []probe.Endpoint, hostScoped map[string]bool) []report.Finding {
+	if len(perEndpoint) != len(eps) {
+		panic(fmt.Sprintf("analyzer: %d finding sets for %d endpoints", len(perEndpoint), len(eps)))
+	}
+	var out []report.Finding
+	firstIdx := make(map[string]int) // host|checkID -> index in out
+	extra := make(map[string]int)    // host|checkID -> endpoints collapsed into it
+	for i, findings := range perEndpoint {
+		host := hostOf(eps[i].URL)
+		for _, f := range findings {
+			if !hostScoped[f.CheckID] {
+				out = append(out, f)
+				continue
+			}
+			key := host + "|" + f.CheckID
+			if _, seen := firstIdx[key]; seen {
+				extra[key]++
+				continue
+			}
+			firstIdx[key] = len(out)
+			out = append(out, f)
+		}
+	}
+	for key, n := range extra {
+		out[firstIdx[key]].What += fmt.Sprintf(" (host-wide: same on %d other probed endpoint(s))", n)
+	}
+	return out
+}
+
+// hostOf returns the host:port of rawURL, or rawURL itself if unparsable so
+// distinct unparsable URLs never collapse together.
+func hostOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
 }
 
 // selectRules filters the global registry by cfg's category/exclude
