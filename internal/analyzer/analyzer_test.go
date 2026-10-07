@@ -682,3 +682,59 @@ func TestMissingEndpoint_IsNotBlamedForMethodBehavior(t *testing.T) {
 		}
 	})
 }
+
+func countByID(rpt *report.Report, id string) int {
+	n := 0
+	for _, bucket := range [][]report.Finding{rpt.MustFix, rpt.ShouldFix, rpt.Consider} {
+		for _, f := range bucket {
+			if f.CheckID == id {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func tlsFixture(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok")) // 200, no HSTS, no Allow on OPTIONS
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestHostScopedFindings_ReportedOncePerHost(t *testing.T) {
+	a, b := tlsFixture(t), tlsFixture(t)
+	rpt, err := analyzer.Run(context.Background(), analyzer.Config{
+		Endpoints: []probe.Endpoint{
+			{Method: "GET", URL: a.URL + "/one"},
+			{Method: "GET", URL: a.URL + "/two"},
+			{Method: "GET", URL: a.URL + "/three"},
+			{Method: "GET", URL: b.URL + "/one"},
+		},
+		Timeout:            5 * time.Second,
+		InsecureSkipVerify: true,
+		Concurrency:        4,
+	})
+	if err != nil {
+		t.Fatalf("analyzer.Run: %v", err)
+	}
+
+	if got := countByID(rpt, "TLS-004"); got != 2 {
+		t.Errorf("expected one TLS-004 per host (2 hosts), got %d", got)
+	}
+	var annotated bool
+	for _, f := range rpt.ShouldFix {
+		if f.CheckID == "TLS-004" && strings.Contains(f.What, "same on 2 other probed endpoint(s)") {
+			annotated = true
+		}
+	}
+	if !annotated {
+		t.Errorf("expected the collapsed TLS-004 finding to note the 2 other endpoints on its host")
+	}
+	// Endpoint-scoped rules must not be collapsed: METH-002 is judged per route.
+	if got := countByID(rpt, "METH-002"); got != 4 {
+		t.Errorf("expected METH-002 once per endpoint (4), got %d", got)
+	}
+}

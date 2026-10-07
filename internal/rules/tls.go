@@ -26,6 +26,7 @@ type certificateValidRule struct{}
 func (certificateValidRule) ID() string              { return "TLS-001" }
 func (certificateValidRule) Category() string        { return "tls" }
 func (certificateValidRule) RequiresRawSocket() bool { return false }
+func (certificateValidRule) HostScoped()             {}
 
 func (r certificateValidRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	if !strings.HasPrefix(ep.URL, "https://") {
@@ -59,6 +60,7 @@ type minTLSVersionRule struct{}
 func (minTLSVersionRule) ID() string              { return "TLS-002" }
 func (minTLSVersionRule) Category() string        { return "tls" }
 func (minTLSVersionRule) RequiresRawSocket() bool { return false }
+func (minTLSVersionRule) HostScoped()             {}
 
 func (r minTLSVersionRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	if !strings.HasPrefix(ep.URL, "https://") {
@@ -99,6 +101,7 @@ type httpToHTTPSRedirectRule struct{}
 func (httpToHTTPSRedirectRule) ID() string              { return "TLS-003" }
 func (httpToHTTPSRedirectRule) Category() string        { return "tls" }
 func (httpToHTTPSRedirectRule) RequiresRawSocket() bool { return false }
+func (httpToHTTPSRedirectRule) HostScoped()             {}
 
 func (r httpToHTTPSRedirectRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	if !strings.HasPrefix(ep.URL, "https://") {
@@ -138,6 +141,7 @@ type hstsPresentRule struct{}
 func (hstsPresentRule) ID() string              { return "TLS-004" }
 func (hstsPresentRule) Category() string        { return "tls" }
 func (hstsPresentRule) RequiresRawSocket() bool { return false }
+func (hstsPresentRule) HostScoped()             {}
 
 func (r hstsPresentRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
 	if !strings.HasPrefix(ep.URL, "https://") {
