@@ -647,3 +647,38 @@ func TestMutatingEndpoint_WithOptInSendsAtMostTheRedirectBaseline(t *testing.T) 
 		t.Errorf("expected at most 1 POST (REDIR-002 baseline) with opt-in, got %d", got)
 	}
 }
+
+func TestMissingEndpoint_IsNotBlamedForMethodBehavior(t *testing.T) {
+	t.Run("404 endpoint: no METH-002 or METH-003", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		ids := findingIDs(runAgainst(t, srv))
+		for _, id := range []string{"METH-002", "METH-003"} {
+			if _, ok := ids[id]; ok {
+				t.Errorf("%s must not fire on an endpoint that itself returns 404", id)
+			}
+		}
+	})
+
+	t.Run("existing endpoint: 404 for an unsupported method is still Must Fix", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		ids := findingIDs(runAgainst(t, srv))
+		if bucket, ok := ids["METH-003"]; !ok || bucket != report.MustFix {
+			t.Errorf("expected METH-003 in MustFix for a 200 route that 404s PROPFIND, got %v (present=%v)", bucket, ok)
+		}
+		if bucket, ok := ids["METH-002"]; !ok || bucket != report.ShouldFix {
+			t.Errorf("expected METH-002 in ShouldFix for a 200 route whose OPTIONS lacks Allow, got %v (present=%v)", bucket, ok)
+		}
+	})
+}

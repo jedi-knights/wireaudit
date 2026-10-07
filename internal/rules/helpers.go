@@ -28,6 +28,21 @@ func isServerError(status int) bool {
 	return status >= 500 && status < 600
 }
 
+// resourceExists reports whether ep's resource looks present: a read-only
+// probe answered and the status is not 404 or 410. Rules whose verdict only
+// means something for an existing route (405-vs-404, OPTIONS/Allow) call this
+// first, so an endpoint that is itself missing is not blamed for behavior
+// that is correct for a missing resource. A failed probe returns false:
+// inconclusive is not a violation.
+func resourceExists(sess *probe.Session, ep probe.Endpoint) bool {
+	res, err := getBaseline(sess, ep)
+	if err != nil || res.Err != nil {
+		return false
+	}
+	status := res.Response.StatusCode
+	return status != 404 && status != 410
+}
+
 // readOnlyMethod returns the method rules use for their read-only probes of ep:
 // the endpoint's own method when it is on the read-only allowlist, otherwise
 // GET. A rule that merely inspects headers, caching or negotiation on a

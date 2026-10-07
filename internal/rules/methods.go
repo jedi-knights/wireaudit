@@ -62,6 +62,9 @@ func (optionsReturnsAllowRule) Category() string        { return "methods" }
 func (optionsReturnsAllowRule) RequiresRawSocket() bool { return false }
 
 func (r optionsReturnsAllowRule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
+	if !resourceExists(sess, ep) {
+		return nil // Allow describes a resource's methods; a missing resource has none
+	}
 	res, err := sess.Do(probe.RequestSpec{Method: "OPTIONS", URL: ep.URL}, false)
 	if err != nil || res.Err != nil {
 		return nil
@@ -88,6 +91,9 @@ func (unsupportedMethod405Rule) RequiresRawSocket() bool { return false }
 const probeMethod = "PROPFIND"
 
 func (r unsupportedMethod405Rule) Check(_ context.Context, sess *probe.Session, ep probe.Endpoint) []report.Finding {
+	if !resourceExists(sess, ep) {
+		return nil // 404 is the correct answer for any method on a route that does not exist
+	}
 	res, err := sess.Do(probe.RequestSpec{Method: probeMethod, URL: ep.URL}, false)
 	if err != nil || res.Err != nil {
 		return nil
