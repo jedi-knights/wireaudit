@@ -43,5 +43,5 @@ smoke: build ## Probe $(SMOKE_TARGET) with GET-only endpoints
 		--endpoint "GET /posts" --endpoint "GET /posts/1"; \
 	rc=$$?; [ $$rc -le 1 ]
 
-clean: ## Remove build output
-	rm -rf $(BIN_DIR)
+clean: ## Remove build output (including a stray ./wireaudit from a bare `go build`)
+	rm -rf $(BIN_DIR) ./$(BINARY)
