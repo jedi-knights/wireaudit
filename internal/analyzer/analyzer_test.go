@@ -476,3 +476,93 @@ func TestErrorBodyFormat_FlagsERR001(t *testing.T) {
 		}
 	})
 }
+
+// runAtPath probes path (which may include a query string) on a trivially
+// healthy server, for the static URI checks that judge the endpoint URL
+// itself rather than the response.
+func runAtPath(t *testing.T, path string, rewrite func(base string) string) *report.Report {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(srv.Close)
+
+	base := srv.URL
+	if rewrite != nil {
+		base = rewrite(base)
+	}
+	rpt, err := analyzer.Run(context.Background(), analyzer.Config{
+		Endpoints: []probe.Endpoint{{Method: "GET", URL: base + path}},
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("analyzer.Run: %v", err)
+	}
+	return rpt
+}
+
+func TestURINaming_FlagsURI001(t *testing.T) {
+	flagged := []string{
+		"/users/",          // trailing slash
+		"/Users",           // uppercase
+		"/user_profiles",   // underscore
+		"/users.json",      // file extension
+		"/get-users",       // leading verb
+		"/v1/delete",       // verb as whole segment
+		"/v1/users/getAll", // camelCase verb
+	}
+	for _, path := range flagged {
+		t.Run("flags "+path, func(t *testing.T) {
+			if bucket, ok := findingIDs(runAtPath(t, path, nil))["URI-001"]; !ok || bucket != report.Consider {
+				t.Errorf("expected URI-001 in Consider for %q, got %v (present=%v)", path, bucket, ok)
+			}
+		})
+	}
+
+	clean := []string{
+		"/",
+		"/v1/users",
+		"/v1/users/42",
+		"/v1/users/usr_9F2", // identifier-like segment is exempt
+		"/v1/user-profiles/42/orders",
+		"/v1.2/users", // version, not an extension
+		"/.well-known/security.txt",
+		"/v1/targets", // "get" inside a word, not a leading verb
+	}
+	for _, path := range clean {
+		t.Run("clean "+path, func(t *testing.T) {
+			if _, ok := findingIDs(runAtPath(t, path, nil))["URI-001"]; ok {
+				t.Errorf("expected no URI-001 finding for %q", path)
+			}
+		})
+	}
+}
+
+func TestURICredentials_FlagsURI002(t *testing.T) {
+	t.Run("userinfo is Must Fix", func(t *testing.T) {
+		rpt := runAtPath(t, "/v1/users", func(base string) string {
+			return strings.Replace(base, "http://", "http://user:pass@", 1)
+		})
+		if bucket, ok := findingIDs(rpt)["URI-002"]; !ok || bucket != report.MustFix {
+			t.Errorf("expected URI-002 in MustFix, got %v (present=%v)", bucket, ok)
+		}
+	})
+
+	t.Run("secret query parameter is Should Fix and the value is not reported", func(t *testing.T) {
+		rpt := runAtPath(t, "/v1/users?API_KEY=hunter2&page=1", nil)
+		if bucket, ok := findingIDs(rpt)["URI-002"]; !ok || bucket != report.ShouldFix {
+			t.Fatalf("expected URI-002 in ShouldFix, got %v (present=%v)", bucket, ok)
+		}
+		for _, f := range rpt.ShouldFix {
+			if strings.Contains(f.What, "hunter2") {
+				t.Errorf("finding must not echo the secret value: %q", f.What)
+			}
+		}
+	})
+
+	t.Run("ordinary query parameters are clean", func(t *testing.T) {
+		if _, ok := findingIDs(runAtPath(t, "/v1/users?page=1&sort=name", nil))["URI-002"]; ok {
+			t.Errorf("expected no URI-002 finding for non-credential parameters")
+		}
+	})
+}
