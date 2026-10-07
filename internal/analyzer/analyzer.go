@@ -74,7 +74,7 @@ func Run(ctx context.Context, cfg Config) (*report.Report, error) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			epFindings := runRules(ctx, activeRules, httpClient, rawClient, cfg.Headers, ep)
+			epFindings := runRules(ctx, activeRules, httpClient, rawClient, cfg.Headers, ep, cfg.AllowUnsafeWrites)
 
 			mu.Lock()
 			findings = append(findings, epFindings...)
@@ -93,10 +93,10 @@ func Run(ctx context.Context, cfg Config) (*report.Report, error) {
 // probe.MaxRequestsPerRule budget — rather than sharing one counter across
 // every rule for the endpoint, which would silently starve every rule after
 // the first few once the shared budget ran out.
-func runRules(ctx context.Context, activeRules []rules.Rule, httpClient *probe.HTTPClient, rawClient *probe.RawClient, headers map[string][]string, ep probe.Endpoint) []report.Finding {
+func runRules(ctx context.Context, activeRules []rules.Rule, httpClient *probe.HTTPClient, rawClient *probe.RawClient, headers map[string][]string, ep probe.Endpoint, allowUnsafeWrites bool) []report.Finding {
 	var findings []report.Finding
 	for _, rule := range activeRules {
-		sess := probe.NewSession(ep, httpClient, rawClient, headers)
+		sess := probe.NewSession(ep, httpClient, rawClient, headers, allowUnsafeWrites)
 		findings = append(findings, rule.Check(ctx, sess, ep)...)
 	}
 	return findings

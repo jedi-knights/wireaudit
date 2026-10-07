@@ -1,6 +1,9 @@
 package probe
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // MaxRequestsPerRule bounds how many requests a single Rule may issue
 // through one Session. Sequenced rules (e.g. a conditional GET that depends
@@ -20,14 +23,28 @@ type Session struct {
 	sent           int
 	endpoint       Endpoint
 	defaultHeaders map[string][]string
+	allowUnsafe    bool
 }
 
 // NewSession builds a Session for one target Endpoint. defaultHeaders (e.g.
 // a caller-supplied Authorization header) are merged into every RequestSpec
 // sent through Do, alongside — not replacing — any header the spec itself
-// sets for that name.
-func NewSession(endpoint Endpoint, httpClient *HTTPClient, rawClient *RawClient, defaultHeaders map[string][]string) *Session {
-	return &Session{endpoint: endpoint, http: httpClient, raw: rawClient, defaultHeaders: defaultHeaders}
+// sets for that name. Unless allowUnsafeWrites is true, Do refuses to send
+// any method that is not on the read-only allowlist (see IsSafeMethod).
+func NewSession(endpoint Endpoint, httpClient *HTTPClient, rawClient *RawClient, defaultHeaders map[string][]string, allowUnsafeWrites bool) *Session {
+	return &Session{endpoint: endpoint, http: httpClient, raw: rawClient, defaultHeaders: defaultHeaders, allowUnsafe: allowUnsafeWrites}
+}
+
+// safeMethods are the methods a conformance probe may send without the
+// caller's explicit opt-in. PROPFIND is the read-only WebDAV method METH-003
+// uses to provoke a 405.
+var safeMethods = map[string]bool{"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true}
+
+// IsSafeMethod reports whether method is on the read-only allowlist.
+// Allowlist, not denylist: an unrecognized or custom method may mutate, so
+// it is treated as unsafe.
+func IsSafeMethod(method string) bool {
+	return safeMethods[strings.ToUpper(method)]
 }
 
 // Do sends spec through whichever transport layer the request needs —
@@ -36,6 +53,12 @@ func NewSession(endpoint Endpoint, httpClient *HTTPClient, rawClient *RawClient,
 // returns an error, rather than sending, once MaxRequestsPerRule has been
 // reached.
 func (s *Session) Do(spec RequestSpec, requiresRaw bool) (Result, error) {
+	// Chokepoint guard: a conformance probe must never mutate a live target
+	// unless the caller opted in via --allow-unsafe-writes. Enforced here,
+	// not per rule, so a future rule cannot bypass it by accident.
+	if !s.allowUnsafe && !IsSafeMethod(spec.Method) {
+		return Result{}, fmt.Errorf("probe: refusing to send %s to %s without --allow-unsafe-writes", spec.Method, s.endpoint.Locator())
+	}
 	if s.sent >= MaxRequestsPerRule {
 		return Result{}, fmt.Errorf("probe: session for %s exceeded MaxRequestsPerRule (%d)", s.endpoint.Locator(), MaxRequestsPerRule)
 	}

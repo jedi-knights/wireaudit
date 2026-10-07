@@ -23,7 +23,7 @@ go build -o wireaudit ./cmd/wireaudit
 - IDs are stable: `<CATEGORY>-NNN`. Never renumber or reuse an ID.
 - Severity follows the README bucket definitions: Must Fix = MUST-level violation, Should Fix = SHOULD-level, Consider = no normative violation.
 - Cite the **current** RFC and section (RFC 9110/9111/9112, not 2616/7230-7235). See the README "Superseded" table.
-- Rules that send mutating requests must stay opt-in behind `--allow-unsafe-writes`.
+- Probes are read-only by default: rules send `readOnlyMethod(ep)` (the endpoint's method if `GET`/`HEAD`/`OPTIONS`/`PROPFIND`, else `GET`), never `ep.Method` directly. A rule that must send a mutating method checks `allowUnsafeWrites(ctx)` first. `probe.Session.Do` also refuses mutating methods without the opt-in — do not weaken that guard.
 
 ## Keep the README tables in sync (mandatory)
 

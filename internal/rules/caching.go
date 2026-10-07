@@ -61,7 +61,7 @@ func (r conditionalGetNotModifiedRule) Check(_ context.Context, sess *probe.Sess
 	}
 
 	res, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{header: {value}},
 	}, false)
@@ -134,7 +134,7 @@ func (r conditionalGetModifiedRule) Check(_ context.Context, sess *probe.Session
 	}
 
 	res, err := sess.Do(probe.RequestSpec{
-		Method: ep.Method,
+		Method: readOnlyMethod(ep),
 		URL:    ep.URL,
 		Header: map[string][]string{header: {value}},
 	}, false)

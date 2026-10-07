@@ -64,7 +64,7 @@ Exit codes:
 | `--format` | `human` | Output format: `human` or `json` |
 | `--timeout` | `10s` | Per-request timeout |
 | `--insecure-skip-verify` | `false` | Disable TLS certificate verification — **never use against a production target** |
-| `--allow-unsafe-writes` | `false` | Permit `CACHE-005` to send a real `PUT`/`PATCH`/`DELETE` against the target to verify precondition enforcement — **off by default; only enable against a target you can safely mutate** |
+| `--allow-unsafe-writes` | `false` | Permit mutating requests (`POST`/`PUT`/`PATCH`/`DELETE`): `CACHE-005` sends a real write to verify precondition enforcement, and `REDIR-002` follows redirects using a non-GET endpoint's own method. **Off by default.** Without it, a non-GET endpoint is probed with `GET` and the probe layer refuses to send any method outside `GET`/`HEAD`/`OPTIONS`/`PROPFIND`. Only enable against a target you can safely mutate |
 | `--concurrency` | `4` | Maximum endpoints probed in parallel |
 
 ## Rule catalog (v1)
@@ -88,7 +88,7 @@ Exit codes:
 | `CACHE-004` | caching | RFC 9110 §13.1.1/§13.1.3 | A non-matching conditional GET does **not** incorrectly return 304 |
 | `CACHE-005` | caching | RFC 9110 §13.1.2/§13.1.4 | A stale `If-Match` on a write is rejected with 412 (only when `--allow-unsafe-writes` is set) |
 | `REDIR-001` | redirects | RFC 9110 §10.2.2 | 3xx responses include `Location` |
-| `REDIR-002` | redirects | RFC 9110 §15.4.4/8/9 | 307/308 preserve method and body; 303 implies GET |
+| `REDIR-002` | redirects | RFC 9110 §15.4.4/8/9 | 307/308 preserve method and body; 303 implies GET (for non-GET endpoints, only when `--allow-unsafe-writes` is set) |
 | `NEG-001` | negotiation | RFC 9110 §12.5.1/§15.5.7 | An unsupported `Accept` produces 406 or a graceful default, never a 5xx |
 | `NEG-002` | negotiation | RFC 9110 §12.5.5 | `Vary` is present when the response varies by request headers |
 | `NEG-003` | negotiation | RFC 9110 §12.5.1, §8.3 | The returned `Content-Type` actually matches the negotiated `Accept` |
